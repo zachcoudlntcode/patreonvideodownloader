@@ -11,7 +11,11 @@ services:
       - CREATOR_URL=https://www.patreon.com/SantiZap  # Replace with your creator
       - MAX_POSTS=20
       - CHECK_INTERVAL=3600
+      - ACCESS_TOKEN=${ACCESS_TOKEN}
+      - REFRESH_TOKEN=${REFRESH_TOKEN}
     restart: unless-stopped
+    env_file:
+      - .env
 
 volumes:
   patreon_downloads:

@@ -3,24 +3,38 @@
 CONFIG_DIR="/data/config"
 DOWNLOAD_DIR="/data/downloads"
 COOKIES_FILE="${CONFIG_DIR}/cookies.txt"
+TOKEN_FILE="${CONFIG_DIR}/token.txt"
 PROCESSED_FILE="${CONFIG_DIR}/processed_posts.txt"
 MAX_POSTS=${MAX_POSTS:-20}
 CHECK_INTERVAL=${CHECK_INTERVAL:-3600}
 CREATOR_URL=${CREATOR_URL:-""}
+ACCESS_TOKEN=${ACCESS_TOKEN:-""}
+REFRESH_TOKEN=${REFRESH_TOKEN:-""}
 
 # Debug information
 echo "DEBUG: Environment variables received:"
 echo "DEBUG: CREATOR_URL=$CREATOR_URL"
 echo "DEBUG: MAX_POSTS=$MAX_POSTS"
 echo "DEBUG: CHECK_INTERVAL=$CHECK_INTERVAL"
+echo "DEBUG: ACCESS_TOKEN=${ACCESS_TOKEN:0:5}..." # Only show first 5 chars for security
 
 # Setup
 mkdir -p "${CONFIG_DIR}" "${DOWNLOAD_DIR}"
 touch "${PROCESSED_FILE}"
 
-if [ ! -f "${COOKIES_FILE}" ]; then
-  echo "Warning: cookies.txt not found in ${CONFIG_DIR}"
-  echo "You may need to provide cookies to access patron-only content"
+# Check for token authentication
+if [ -n "${ACCESS_TOKEN}" ]; then
+  echo "Using provided access token from environment variables"
+  # Store token in file for yt-dlp
+  echo "${ACCESS_TOKEN}" > "${TOKEN_FILE}"
+elif [ -f "${TOKEN_FILE}" ]; then
+  echo "Using existing token file from ${TOKEN_FILE}"
+  ACCESS_TOKEN=$(cat "${TOKEN_FILE}")
+elif [ -f "${COOKIES_FILE}" ]; then
+  echo "Using cookies authentication as fallback"
+else
+  echo "Warning: No authentication method provided. Need either ACCESS_TOKEN or cookies.txt"
+  echo "You may need to provide authentication to access patron-only content"
 fi
 
 echo "Patreon Downloader starting..."
@@ -50,6 +64,60 @@ mark_processed() {
   echo "${id}" >> "${PROCESSED_FILE}"
 }
 
+# Function to use appropriate authentication method
+download_with_auth() {
+  local url="$1"
+  local output_template="$2"
+  local options="$3"
+  
+  if [ -n "${ACCESS_TOKEN}" ]; then
+    # Use token-based authentication with headers
+    yt-dlp --add-headers "Authorization: Bearer ${ACCESS_TOKEN}" $options "$url" -o "$output_template"
+  elif [ -f "${COOKIES_FILE}" ]; then
+    # Fallback to cookies-based authentication
+    yt-dlp --cookies "${COOKIES_FILE}" $options "$url" -o "$output_template"
+  else
+    # Try without authentication
+    yt-dlp $options "$url" -o "$output_template"
+  fi
+  
+  return $?
+}
+
+# Simulate with auth
+simulate_with_auth() {
+  local url="$1"
+  
+  if [ -n "${ACCESS_TOKEN}" ]; then
+    yt-dlp --add-headers "Authorization: Bearer ${ACCESS_TOKEN}" --simulate "$url" >/dev/null 2>&1
+  elif [ -f "${COOKIES_FILE}" ]; then
+    yt-dlp --cookies "${COOKIES_FILE}" --simulate "$url" >/dev/null 2>&1
+  else
+    yt-dlp --simulate "$url" >/dev/null 2>&1
+  fi
+  
+  return $?
+}
+
+# Get posts list with auth
+get_posts_list() {
+  local url="$1"
+  local output_file="$2"
+  
+  if [ -n "${ACCESS_TOKEN}" ]; then
+    yt-dlp --dump-json --playlist-items "1-${MAX_POSTS}" \
+      --add-headers "Authorization: Bearer ${ACCESS_TOKEN}" \
+      "$url" 2>/dev/null > "$output_file" || true
+  elif [ -f "${COOKIES_FILE}" ]; then
+    yt-dlp --dump-json --playlist-items "1-${MAX_POSTS}" \
+      --cookies "${COOKIES_FILE}" \
+      "$url" 2>/dev/null > "$output_file" || true
+  else
+    yt-dlp --dump-json --playlist-items "1-${MAX_POSTS}" \
+      "$url" 2>/dev/null > "$output_file" || true
+  fi
+}
+
 # Main loop
 while true; do
   echo "----------------------------------------"
@@ -69,8 +137,7 @@ while true; do
   
   # Get recent posts
   POSTS_LIST=$(mktemp)
-  yt-dlp --dump-json --playlist-items "1-${MAX_POSTS}" \
-    --cookies "${COOKIES_FILE}" "${POSTS_URL}" 2>/dev/null > "${POSTS_LIST}" || true
+  get_posts_list "${POSTS_URL}" "${POSTS_LIST}"
   
   # Process each post
   POSTS_COUNT=0
@@ -108,13 +175,13 @@ while true; do
     echo "Download URL: ${POST_URL}"
     
     # Download attempt with advanced format selection
-    if yt-dlp --cookies "${COOKIES_FILE}" --simulate "${POST_URL}" >/dev/null 2>&1; then
+    if simulate_with_auth "${POST_URL}"; then
       echo "Found video content in post ${POST_ID}"
       
       # Download the video with best format
-      yt-dlp --cookies "${COOKIES_FILE}" --ignore-errors --no-playlist \
-        --format "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-        -o "${DOWNLOAD_DIR}/%(uploader)s/%(title)s.%(ext)s" "${POST_URL}"
+      download_with_auth "${POST_URL}" \
+        "${DOWNLOAD_DIR}/%(uploader)s/%(title)s.%(ext)s" \
+        "--ignore-errors --no-playlist --format \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best\""
       
       DOWNLOAD_RESULT=$?
       

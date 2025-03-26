@@ -6,6 +6,7 @@ RUN apt-get update && \
     ffmpeg \
     curl \
     grep \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install yt-dlp
