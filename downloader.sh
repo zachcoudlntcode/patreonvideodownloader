@@ -18,8 +18,17 @@ mkdir -p /data/downloads
 # Create yt-dlp config with Patreon tokens
 if [[ -n "$ACCESS_TOKEN" && -n "$REFRESH_TOKEN" ]]; then
     echo "Using provided access and refresh tokens from environment variables"
-    cat > /data/config/yt-dlp.conf << EOF
---netrc-cmd "echo machine patreon.com login oauth password ${ACCESS_TOKEN}"
+    
+    # Create .netrc file for yt-dlp authentication
+    cat > /data/config/.netrc << EOF
+machine patreon.com
+login oauth
+password ${ACCESS_TOKEN}
+EOF
+    chmod 600 /data/config/.netrc
+    
+    # Create extractor args config
+    cat > /data/config/extractor_args.conf << EOF
 --extractor-args "patreon:access_token=${ACCESS_TOKEN};refresh_token=${REFRESH_TOKEN}"
 EOF
 else
@@ -43,28 +52,27 @@ check_for_videos() {
     fi
 
     # Run yt-dlp with proper authentication and options
-    yt-dlp --config-location /data/config/yt-dlp.conf \
+    yt-dlp --netrc-file /data/config/.netrc \
+        --config-location /data/config/extractor_args.conf \
         --download-archive /data/config/download_archive.txt \
         --write-info-json \
         --playlist-items 1-${MAX_POSTS:-20} \
         -o "/data/downloads/%(creator)s/%(title)s [%(id)s].%(ext)s" \
         --verbose \
-        ${CREATOR_URL} || true
+        ${CREATOR_URL}
         
-    # Count how many entries we checked and how many new ones were downloaded
-    CHECKED=$(grep -c "Patreon" /tmp/yt-dlp.log 2>/dev/null || echo "0")
-    DOWNLOADED=$(grep -c "Destination" /tmp/yt-dlp.log 2>/dev/null || echo "0")
-    
-    echo "Check completed: ${CHECKED} posts checked, ${DOWNLOADED} new downloads"
+    # Count how many new downloads
+    DOWNLOADED=$?
+    if [ $DOWNLOADED -eq 0 ]; then
+        echo "Check completed successfully"
+    else
+        echo "Check completed with errors"
+    fi
 }
 
 # Main loop
 while true; do
-    # Create a log file for this run
-    rm -f /tmp/yt-dlp.log
-    check_for_videos > /tmp/yt-dlp.log 2>&1
-    cat /tmp/yt-dlp.log
-    
+    check_for_videos
     echo "Waiting ${CHECK_INTERVAL:-3600} seconds until next check..."
     sleep ${CHECK_INTERVAL:-3600}
 done
