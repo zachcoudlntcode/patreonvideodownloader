@@ -5,10 +5,14 @@ services:
     build: .
     container_name: patreon-downloader
     volumes:
-      - ./data/downloads:/data/downloads
-      - ./data/config:/data/config
+      - patreon_downloads:/data/downloads
+      - patreon_config:/data/config
     environment:
       - CREATOR_URL=https://www.patreon.com/SantiZap  # Replace with your creator
       - MAX_POSTS=20
       - CHECK_INTERVAL=3600
     restart: unless-stopped
+
+volumes:
+  patreon_downloads:
+  patreon_config:
