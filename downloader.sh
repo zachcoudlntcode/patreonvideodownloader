@@ -19,13 +19,13 @@ mkdir -p /data/downloads
 if [[ -n "$ACCESS_TOKEN" && -n "$REFRESH_TOKEN" ]]; then
     echo "Using provided access and refresh tokens from environment variables"
     
-    # Create .netrc file for yt-dlp authentication
-    cat > /data/config/.netrc << EOF
+    # Create netrc file in home directory (default location yt-dlp checks)
+    cat > ~/.netrc << EOF
 machine patreon.com
 login oauth
 password ${ACCESS_TOKEN}
 EOF
-    chmod 600 /data/config/.netrc
+    chmod 600 ~/.netrc
     
     # Create extractor args config
     cat > /data/config/extractor_args.conf << EOF
@@ -52,22 +52,15 @@ check_for_videos() {
     fi
 
     # Run yt-dlp with proper authentication and options
-    yt-dlp --netrc-file /data/config/.netrc \
-        --config-location /data/config/extractor_args.conf \
+    yt-dlp --config-location /data/config/extractor_args.conf \
         --download-archive /data/config/download_archive.txt \
         --write-info-json \
         --playlist-items 1-${MAX_POSTS:-20} \
         -o "/data/downloads/%(creator)s/%(title)s [%(id)s].%(ext)s" \
         --verbose \
-        ${CREATOR_URL}
+        ${CREATOR_URL} || true
         
-    # Count how many new downloads
-    DOWNLOADED=$?
-    if [ $DOWNLOADED -eq 0 ]; then
-        echo "Check completed successfully"
-    else
-        echo "Check completed with errors"
-    fi
+    echo "Check completed"
 }
 
 # Main loop
